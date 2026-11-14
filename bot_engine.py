@@ -27,26 +27,53 @@ def md5_hash(t): return hashlib.md5(t.encode()).hexdigest()
 
 def login_and_get_token(username, password):
     pw = md5_hash(password)
+    # Thêm header giả lập trình duyệt để tránh bị chặn
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://tele68.com",
+        "Referer": "https://tele68.com/"
+    }
+    
     url = f"https://apifo88daigia.tele68.com/api?c=3&un={username}&pw={pw}&cp=R&cl=R&pf=web&at="
     try:
-        r = requests.get(url, timeout=12); r.raise_for_status(); data = r.json()
+        # Tăng timeout lên 30s cho Render free
+        r = requests.get(url, headers=headers, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        
         if not data.get("success"):
-            return {"_error": f"Lỗi Game: {data.get('message','Sai thông tin')}"}
+            return {"_error": f"Lỗi Game: {data.get('message', 'Sai tài khoản hoặc mật khẩu')}"}
+            
         sk = data["sessionKey"]; sk += "=" * ((4 - len(sk) % 4) % 4)
         sd = json.loads(base64.b64decode(sk).decode())
         nickname = sd.get("nickname") or sd.get("nickName")
         at = data["accessToken"]
+        
         r2 = requests.post("https://wlb.tele68.com/v1/lobby/auth/login?cp=R&cl=R&pf=web&at=",
-            headers={"authority": "wlb.tele68.com", "content-type": "application/json"},
-            json={"nickName": nickname, "accessToken": at}, timeout=12)
+            headers={
+                "authority": "wlb.tele68.com", 
+                "content-type": "application/json",
+                "User-Agent": headers["User-Agent"],
+                "Origin": "https://tele68.com",
+                "Referer": "https://tele68.com/"
+            },
+            json={"nickName": nickname, "accessToken": at}, timeout=30)
+            
         lobby = r2.json(); token = lobby.get("token")
         if not token: return {"_error": "Lobby không trả JWT."}
+        
         return {"token": token, "nickname": nickname,
                 "money": lobby.get("remoteLoginResp", {}).get("money", 0)}
+    except requests.exceptions.Timeout:
+        return {"_error": "Server Game phản hồi quá chậm (Timeout 30s). Vui lòng thử lại!"}
+    except requests.exceptions.ConnectionError:
+        return {"_error": "Không thể kết nối đến server game. Có thể IP Render bị chặn."}
     except Exception as e:
-        return {"_error": f"Lỗi kết nối: {e}"}
+        return {"_error": f"Lỗi hệ thống: {str(e)}"}
 
 def make_prediction(history=None, last_preds_holder=None):
+    # (Giữ nguyên toàn bộ logic AI 35 lõi như cũ)
     history = history if history is not None else GLOBAL_HISTORY
     weights = GLOBAL_AI_WEIGHTS
     if len(history) < 10: return random.choice(["TAI", "XIU"])
