@@ -15,44 +15,41 @@ function fmt(n) { return (n || 0).toLocaleString('vi-VN'); }
 $('btn-login').onclick = async () => {
   const un = $('username').value.trim();
   const pw = $('password').value.trim();
+  const key = $('license-key').value.trim();
   const msgEl = $('login-msg');
 
   if (!un || !pw) {
-    msgEl.style.color = '#f87171';
-    msgEl.textContent = '⚠️ Vui lòng nhập đủ tài khoản & mật khẩu';
+    msgEl.style.color = '#ef4444';
+    msgEl.textContent = '⚠️ Vui lòng nhập đủ Tài khoản và Mật khẩu';
     return;
   }
 
-  msgEl.style.color = '#facc15';
-  msgEl.textContent = '⏳ Đang đăng nhập... (chờ 15s)';
-  $('btn-login').disabled = true;
-  $('btn-login').textContent = '⏳ Đang xử lý...';
+  // Kiểm tra key giả lập (Bạn có thể thay đổi logic này)
+  if (!key) {
+    msgEl.style.color = '#ef4444';
+    msgEl.textContent = '⚠️ Vui lòng nhập KEY bản quyền';
+    return;
+  }
 
-  // Timeout 20s phía client
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  msgEl.style.color = '#d97706';
+  msgEl.textContent = '⏳ Đang xác thực API Game (Chờ tối đa 35s)...';
+  $('btn-login').disabled = true;
+  $('btn-login').innerHTML = '⏳ ĐANG XỬ LÝ...';
 
   try {
     const r = await fetch('/api/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username: un, password: pw}),
-      signal: controller.signal
+      body: JSON.stringify({username: un, password: pw, key: key})
     });
-    clearTimeout(timer);
-
-    let j;
-    try {
-      j = await r.json();
-    } catch (e) {
-      throw new Error('Server không trả JSON. HTTP ' + r.status);
-    }
+    
+    const j = await r.json();
 
     if (!j.ok) {
-      msgEl.style.color = '#f87171';
+      msgEl.style.color = '#ef4444';
       msgEl.textContent = '❌ ' + (j.msg || 'Đăng nhập thất bại');
       $('btn-login').disabled = false;
-      $('btn-login').textContent = '🚀 Đăng nhập';
+      $('btn-login').innerHTML = '<span class="lock-icon">🔒</span> ĐĂNG NHẬP';
       return;
     }
 
@@ -68,41 +65,26 @@ $('btn-login').onclick = async () => {
     window._money = j.money;
 
     socket.emit('start_bot', {
-      token: j.token,
-      nickname: j.nickname,
-      username: j.username,
-      money: j.money
+      token: j.token, nickname: j.nickname, username: j.username, money: j.money
     });
     botRunning = true;
     log('✅ Đăng nhập thành công: ' + j.nickname);
     log('🔄 Đang kết nối API Game...');
   } catch (e) {
-    clearTimeout(timer);
-    msgEl.style.color = '#f87171';
-    if (e.name === 'AbortError') {
-      msgEl.textContent = '⏰ Timeout 20s - API game chậm. Thử lại.';
-    } else {
-      msgEl.textContent = '❌ Lỗi: ' + e.message;
-    }
+    msgEl.style.color = '#ef4444';
+    msgEl.textContent = '❌ Lỗi kết nối Server Web. Vui lòng thử lại!';
     $('btn-login').disabled = false;
-    $('btn-login').textContent = '🚀 Đăng nhập';
+    $('btn-login').innerHTML = '<span class="lock-icon">🔒</span> ĐĂNG NHẬP';
   }
 };
 
-// Enter để login
-$('password').addEventListener('keypress', e => {
-  if (e.key === 'Enter') $('btn-login').click();
-});
+$('password').addEventListener('keypress', e => { if (e.key === 'Enter') $('btn-login').click(); });
+$('license-key').addEventListener('keypress', e => { if (e.key === 'Enter') $('btn-login').click(); });
 
 // ============ START / STOP ============
 $('btn-start').onclick = () => {
   if (!window._token) return log('❌ Chưa đăng nhập');
-  socket.emit('start_bot', {
-    token: window._token,
-    nickname: window._nickname,
-    username: window._username,
-    money: window._money
-  });
+  socket.emit('start_bot', { token: window._token, nickname: window._nickname, username: window._username, money: window._money });
   botRunning = true;
   log('🚀 Bot đang khởi động...');
 };
@@ -112,8 +94,7 @@ $('btn-stop').onclick = () => {
   $('btn-autobet').classList.remove('active');
   $('btn-autobet').textContent = '▶ Bật Auto';
   socket.emit('set_autobet', { on: false });
-  socket.disconnect();
-  socket.connect();
+  socket.disconnect(); socket.connect();
   botRunning = false;
   log('⏹ Đã dừng bot & tắt Auto');
 };
@@ -139,10 +120,7 @@ $('btn-x2').onclick = () => {
 
 $('target').onchange = () => {
   const t = parseInt($('target').value);
-  if (t > 0) {
-    socket.emit('set_target', { target: t });
-    log('🎯 Target: ' + fmt(t) + ' Win');
-  }
+  if (t > 0) { socket.emit('set_target', { target: t }); log('🎯 Target: ' + fmt(t) + ' Win'); }
 };
 
 $('btn-reset').onclick = () => {
@@ -159,7 +137,7 @@ socket.on('user_info', d => {
   $('uname-sub').textContent = '@' + (d.username || '');
   $('balance').textContent = fmt(d.balance);
   $('pl').textContent = fmt(d.profit_loss);
-  $('pl').style.color = d.profit_loss >= 0 ? '#22c55e' : '#ef4444';
+  $('pl').style.color = d.profit_loss >= 0 ? '#16a34a' : '#dc2626';
   $('total-win').textContent = d.total_win;
   $('total-lose').textContent = d.total_lose;
   $('total-sessions').textContent = d.total_sessions;
@@ -189,7 +167,7 @@ socket.on('result', d => {
   log(`🎲 ${emoji} (${d.dices.join('-')})${extra} | Lãi: ${fmt(d.profit_loss)} | Chuỗi: ${d.win_streak}`);
 
   $('pl').textContent = fmt(d.profit_loss);
-  $('pl').style.color = d.profit_loss >= 0 ? '#22c55e' : '#ef4444';
+  $('pl').style.color = d.profit_loss >= 0 ? '#16a34a' : '#dc2626';
   $('streak').textContent = d.win_streak;
   $('balance').textContent = fmt(d.balance);
   $('total-win').textContent = d.total_win;
@@ -209,14 +187,12 @@ socket.on('weights', d => {
 });
 
 socket.on('autobet_ack', d => {
-  autoOn = d.on;
-  $('btn-autobet').classList.toggle('active', autoOn);
+  autoOn = d.on; $('btn-autobet').classList.toggle('active', autoOn);
   $('btn-autobet').textContent = autoOn ? '⏸ Tắt Auto' : '▶ Bật Auto';
 });
 
 socket.on('x2_ack', d => {
-  x2On = d.on;
-  $('btn-x2').classList.toggle('active', x2On);
+  x2On = d.on; $('btn-x2').classList.toggle('active', x2On);
   $('btn-x2').textContent = x2On ? '⚡ X2 BẬT' : '⚡ X2';
 });
 
@@ -226,36 +202,24 @@ socket.on('history_data', d => {
   $('total-lose').textContent = d.total_lose;
   $('total-sessions').textContent = d.total_sessions;
   $('pl').textContent = fmt(d.profit_loss);
-  $('pl').style.color = d.profit_loss >= 0 ? '#22c55e' : '#ef4444';
+  $('pl').style.color = d.profit_loss >= 0 ? '#16a34a' : '#dc2626';
   updateWinRate(d.total_win, d.total_sessions);
 });
 
-socket.on('history_reset_ack', () => {
-  log('✅ Đã reset lịch sử');
-  renderHistory([]);
-});
+socket.on('history_reset_ack', () => { log('✅ Đã reset lịch sử'); renderHistory([]); });
 
-// ============ HELPERS ============
-function updateWinRate(win, total) {
-  $('win-rate').textContent = total > 0 ? ((win/total)*100).toFixed(1) + '%' : '0%';
-}
-
+function updateWinRate(win, total) { $('win-rate').textContent = total > 0 ? ((win/total)*100).toFixed(1) + '%' : '0%'; }
 function renderHistory(list) {
   const el = $('history-list');
-  if (!list || list.length === 0) {
-    el.innerHTML = '<div class="empty">Chưa có lịch sử cược</div>';
-    return;
-  }
+  if (!list || list.length === 0) { el.innerHTML = '<div class="empty">Chưa có lịch sử cược</div>'; return; }
   el.innerHTML = list.slice().reverse().map(historyItemHTML).join('');
 }
-
 function prependHistory(entry) {
   const el = $('history-list');
   if (el.querySelector('.empty')) el.innerHTML = '';
   el.insertAdjacentHTML('afterbegin', historyItemHTML(entry));
   while (el.children.length > 100) el.removeChild(el.lastChild);
 }
-
 function historyItemHTML(h) {
   const isWin = h.outcome === 'WIN';
   const cls = isWin ? 'h-win' : 'h-lose';
@@ -265,17 +229,8 @@ function historyItemHTML(h) {
   const profit = h.profit >= 0 ? `+${fmt(h.profit)}` : fmt(h.profit);
   return `
     <div class="h-item ${cls}">
-      <div class="h-left">
-        <div class="h-icon">${icon}</div>
-        <div>
-          <div class="h-session">#${h.session || '-'}</div>
-          <div class="h-detail">Đoán ${pred} → KQ ${res}</div>
-        </div>
-      </div>
-      <div class="h-right">
-        <div class="h-profit">${profit}</div>
-        <div class="h-time">${h.time || ''}</div>
-      </div>
+      <div class="h-left"><div class="h-icon">${icon}</div><div><div class="h-session">#${h.session || '-'}</div><div class="h-detail">Đoán ${pred} → KQ ${res}</div></div></div>
+      <div class="h-right"><div class="h-profit">${profit}</div><div class="h-time">${h.time || ''}</div></div>
     </div>
   `;
 }
