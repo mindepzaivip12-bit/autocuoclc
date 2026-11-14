@@ -1,6 +1,3 @@
-import eventlet
-eventlet.monkey_patch()
-
 import os
 import threading
 import time
@@ -14,6 +11,8 @@ import requests
 import socketio as sio_client
 from flask import Flask, render_template_string, request, jsonify
 from flask_socketio import SocketIO, emit
+from gevent import monkey
+monkey.patch_all()
 
 # ==========================================
 # CẤU HÌNH HỆ THỐNG
@@ -25,7 +24,8 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-please')
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', ping_timeout=60, ping_interval=25)
+# Dùng gevent cho SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=60, ping_interval=25)
 
 GLOBAL_HISTORY = []
 GLOBAL_AI_WEIGHTS = {k: 1.0 for k in ["trend", "pattern", "frequency", "momentum", "symmetry", "alternating", "fibonacci", "chaos", "shadow", "markov1", "markov2", "markov3", "rsi_indicator", "macd_cross", "pivot_reversal", "cluster_3", "parity", "golden_ratio", "quantum", "anti_bait", "smart_breaker", "ngram_4", "ngram_5", "elliott_wave", "contrarian", "bollinger_bands", "mean_reversion", "mirror_reflection", "martingale_trap", "poisson_prob", "harmonic_cycle", "breakout_hunter", "volume_fakeout", "time_decay", "neural_bias", "twin_peaks"]}
@@ -61,7 +61,7 @@ def save_history(data):
 PERSISTED_HISTORY = load_history()
 
 # ==========================================
-# LOGIC API GAME
+# LOGIC API GAME (CÓ RETRY CHỐNG TIMEOUT)
 # ==========================================
 def md5_hash(t): return hashlib.md5(t.encode()).hexdigest()
 
@@ -72,29 +72,46 @@ def login_and_get_token(username, password):
         "Accept": "application/json, text/plain, */*",
         "Origin": "https://tele68.com", "Referer": "https://tele68.com/"
     }
+    
+    # NẾU CÓ PROXY VIỆT NAM THÌ ĐIỀN VÀO ĐÂY (VD: "http://user:pass@ip:port")
+    PROXY = None 
+    proxies = {"http": PROXY, "https": PROXY} if PROXY else None
+
     url = f"https://apifo88daigia.tele68.com/api?c=3&un={username}&pw={pw}&cp=R&cl=R&pf=web&at="
-    try:
-        r = requests.get(url, headers=headers, timeout=25)
-        r.raise_for_status()
-        data = r.json()
-        if not data.get("success"): return {"_error": "Sai tài khoản hoặc mật khẩu!"}
-        sk = data["sessionKey"]; sk += "=" * ((4 - len(sk) % 4) % 4)
-        sd = json.loads(base64.b64decode(sk).decode())
-        nickname = sd.get("nickname") or sd.get("nickName")
-        at = data["accessToken"]
-        r2 = requests.post("https://wlb.tele68.com/v1/lobby/auth/login?cp=R&cl=R&pf=web&at=",
-            headers={"authority": "wlb.tele68.com", "content-type": "application/json", "User-Agent": headers["User-Agent"]},
-            json={"nickName": nickname, "accessToken": at}, timeout=25)
-        lobby = r2.json(); token = lobby.get("token")
-        if not token: return {"_error": "Lỗi lấy token từ Lobby."}
-        return {"token": token, "nickname": nickname, "money": lobby.get("remoteLoginResp", {}).get("money", 0)}
-    except requests.exceptions.Timeout:
-        return {"_error": "Server Game phản hồi quá chậm. Vui lòng thử lại!"}
-    except Exception as e:
-        return {"_error": f"Lỗi kết nối: {str(e)}"}
+    
+    for attempt in range(3):
+        try:
+            # Timeout 40s để chờ Render free khởi động
+            r = requests.get(url, headers=headers, timeout=40, proxies=proxies)
+            r.raise_for_status()
+            data = r.json()
+            
+            if not data.get("success"): 
+                return {"_error": "Sai tài khoản hoặc mật khẩu!"}
+                
+            sk = data["sessionKey"]; sk += "=" * ((4 - len(sk) % 4) % 4)
+            sd = json.loads(base64.b64decode(sk).decode())
+            nickname = sd.get("nickname") or sd.get("nickName")
+            at = data["accessToken"]
+            
+            r2 = requests.post("https://wlb.tele68.com/v1/lobby/auth/login?cp=R&cl=R&pf=web&at=",
+                headers={"authority": "wlb.tele68.com", "content-type": "application/json", "User-Agent": headers["User-Agent"]},
+                json={"nickName": nickname, "accessToken": at}, timeout=40, proxies=proxies)
+                
+            lobby = r2.json(); token = lobby.get("token")
+            if not token: return {"_error": "Lỗi lấy token từ Lobby."}
+            
+            return {"token": token, "nickname": nickname, "money": lobby.get("remoteLoginResp", {}).get("money", 0)}
+            
+        except requests.exceptions.Timeout:
+            if attempt == 2:
+                return {"_error": "Server Game phản hồi quá chậm (Timeout 40s). Vui lòng thử lại!"}
+            time.sleep(2)
+        except Exception as e:
+            return {"_error": f"Lỗi kết nối IP: {str(e)}"}
 
 # ==========================================
-# LOGIC 35 LÕI AI (RÚT GỌN)
+# LOGIC 35 LÕI AI
 # ==========================================
 def make_prediction(history=None, last_preds_holder=None):
     history = history if history is not None else GLOBAL_HISTORY
@@ -174,7 +191,7 @@ def update_global_weights(actual_result, last_preds):
             GLOBAL_AI_WEIGHTS[m] = max(0.1, GLOBAL_AI_WEIGHTS[m] - 2.5)
 
 # ==========================================
-# GIAO DIỆN HTML (DÙNG 3 NGOẶC ĐƠN ĐỂ FIX LỖI SYNTAX)
+# GIAO DIỆN HTML/CSS/JS (ĐÃ FIX LỖI)
 # ==========================================
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -307,7 +324,7 @@ $('btn-login').onclick = async () => {
   if (!un || !pw) { msgEl.style.color = '#ef4444'; msgEl.textContent = '⚠️ Nhập đủ Tài khoản & Mật khẩu'; return; }
   if (!key) { msgEl.style.color = '#ef4444'; msgEl.textContent = '⚠️ Nhập KEY bản quyền'; return; }
   
-  msgEl.style.color = '#d97706'; msgEl.textContent = '⏳ Đang xác thực API Game...';
+  msgEl.style.color = '#d97706'; msgEl.textContent = '⏳ Đang xác thực API Game (Tối đa 40s)...';
   $('btn-login').disabled = true; $('btn-login').innerHTML = '⏳ ĐANG XỬ LÝ...';
   
   try {
