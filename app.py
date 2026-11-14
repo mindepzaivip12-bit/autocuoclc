@@ -1,14 +1,22 @@
 import eventlet
 eventlet.monkey_patch()
 
-import os, threading, time, json, hashlib, base64, math, random, logging
+import os
+import threading
+import time
+import json
+import hashlib
+import base64
+import math
+import random
+import logging
 import requests
 import socketio as sio_client
 from flask import Flask, render_template_string, request, jsonify
 from flask_socketio import SocketIO, emit
 
 # ==========================================
-# CẤU HÌNH HỆ THỐNG & AI
+# CẤU HÌNH HỆ THỐNG
 # ==========================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,11 +25,9 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-please')
-# Tăng timeout cho socketio để tránh rớt mạng
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', ping_timeout=60, ping_interval=25)
 
 GLOBAL_HISTORY = []
-MAX_GLOBAL_HISTORY = 2000
 GLOBAL_AI_WEIGHTS = {k: 1.0 for k in ["trend", "pattern", "frequency", "momentum", "symmetry", "alternating", "fibonacci", "chaos", "shadow", "markov1", "markov2", "markov3", "rsi_indicator", "macd_cross", "pivot_reversal", "cluster_3", "parity", "golden_ratio", "quantum", "anti_bait", "smart_breaker", "ngram_4", "ngram_5", "elliott_wave", "contrarian", "bollinger_bands", "mean_reversion", "mirror_reflection", "martingale_trap", "poisson_prob", "harmonic_cycle", "breakout_hunter", "volume_fakeout", "time_decay", "neural_bias", "twin_peaks"]}
 GLOBAL_AI_WEIGHTS["anti_bait"] = 2.0
 GLOBAL_AI_WEIGHTS["smart_breaker"] = 2.0
@@ -50,7 +56,7 @@ def load_history():
 def save_history(data):
     try:
         with open(HISTORY_FILE, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e: print("Save history error:", e)
+    except: pass
 
 PERSISTED_HISTORY = load_history()
 
@@ -68,26 +74,19 @@ def login_and_get_token(username, password):
     }
     url = f"https://apifo88daigia.tele68.com/api?c=3&un={username}&pw={pw}&cp=R&cl=R&pf=web&at="
     try:
-        # Timeout 25s
         r = requests.get(url, headers=headers, timeout=25)
         r.raise_for_status()
         data = r.json()
-        
-        if not data.get("success"):
-            return {"_error": f"Sai tài khoản hoặc mật khẩu!"}
-            
+        if not data.get("success"): return {"_error": "Sai tài khoản hoặc mật khẩu!"}
         sk = data["sessionKey"]; sk += "=" * ((4 - len(sk) % 4) % 4)
         sd = json.loads(base64.b64decode(sk).decode())
         nickname = sd.get("nickname") or sd.get("nickName")
         at = data["accessToken"]
-        
         r2 = requests.post("https://wlb.tele68.com/v1/lobby/auth/login?cp=R&cl=R&pf=web&at=",
             headers={"authority": "wlb.tele68.com", "content-type": "application/json", "User-Agent": headers["User-Agent"]},
             json={"nickName": nickname, "accessToken": at}, timeout=25)
-            
         lobby = r2.json(); token = lobby.get("token")
         if not token: return {"_error": "Lỗi lấy token từ Lobby."}
-        
         return {"token": token, "nickname": nickname, "money": lobby.get("remoteLoginResp", {}).get("money", 0)}
     except requests.exceptions.Timeout:
         return {"_error": "Server Game phản hồi quá chậm. Vui lòng thử lại!"}
@@ -95,7 +94,7 @@ def login_and_get_token(username, password):
         return {"_error": f"Lỗi kết nối: {str(e)}"}
 
 # ==========================================
-# LOGIC 35 LÕI AI
+# LOGIC 35 LÕI AI (RÚT GỌN)
 # ==========================================
 def make_prediction(history=None, last_preds_holder=None):
     history = history if history is not None else GLOBAL_HISTORY
@@ -175,9 +174,9 @@ def update_global_weights(actual_result, last_preds):
             GLOBAL_AI_WEIGHTS[m] = max(0.1, GLOBAL_AI_WEIGHTS[m] - 2.5)
 
 # ==========================================
-# GIAO DIỆN HTML/CSS/JS (GỘP)
+# GIAO DIỆN HTML (DÙNG 3 NGOẶC ĐƠN ĐỂ FIX LỖI SYNTAX)
 # ==========================================
-HTML_TEMPLATE = """
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -308,7 +307,7 @@ $('btn-login').onclick = async () => {
   if (!un || !pw) { msgEl.style.color = '#ef4444'; msgEl.textContent = '⚠️ Nhập đủ Tài khoản & Mật khẩu'; return; }
   if (!key) { msgEl.style.color = '#ef4444'; msgEl.textContent = '⚠️ Nhập KEY bản quyền'; return; }
   
-  msgEl.style.color = '#d97706'; msgEl.textContent = '⏳ Đang xác thực API Game (Chờ tối đa 30s)...';
+  msgEl.style.color = '#d97706'; msgEl.textContent = '⏳ Đang xác thực API Game...';
   $('btn-login').disabled = true; $('btn-login').innerHTML = '⏳ ĐANG XỬ LÝ...';
   
   try {
@@ -329,7 +328,7 @@ $('btn-login').onclick = async () => {
     socket.emit('start_bot', {token: j.token, nickname: j.nickname, username: j.username, money: j.money});
     log('✅ Đăng nhập thành công: ' + j.nickname);
   } catch (e) {
-    msgEl.style.color = '#ef4444'; msgEl.textContent = '❌ Lỗi kết nối Server (Timeout)!';
+    msgEl.style.color = '#ef4444'; msgEl.textContent = '❌ Lỗi kết nối Server!';
     $('btn-login').disabled = false; $('btn-login').innerHTML = '🔒 ĐĂNG NHẬP';
   }
 };
@@ -351,13 +350,11 @@ function html(h) { const w=h.outcome==='WIN'; return `<div class="h-item ${w?'h-
 </script>
 </body>
 </html>
-"""
+'''
 
-# ==========================================
-# ROUTES & SOCKET EVENTS
-# ==========================================
 @app.route('/')
-def index(): return render_template_string(HTML_TEMPLATE)
+def index(): 
+    return render_template_string(HTML_TEMPLATE)
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
