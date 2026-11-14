@@ -10,40 +10,25 @@ from bot_engine import (login_and_get_token, make_prediction, update_global_weig
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-please')
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet',
+                    ping_timeout=60, ping_interval=25)
 
-# ==========================================
-# STATE NGƯỜI DÙNG WEB
-# ==========================================
 WEB_USERS = {}
 HISTORY_FILE = "bet_history.json"
 
 def init_user_state():
     return {
-        "profit_loss": 0,
-        "auto_bet": False,
-        "x2_mode": False,
-        "win_streak": 0,
-        "lose_streak": 0,
-        "total_win": 0,        # Số phiên thắng
-        "total_lose": 0,       # Số phiên thua
-        "total_sessions": 0,   # Tổng số phiên đã cược
-        "base_bet": 10000,
-        "current_bet": 10000,
-        "target_profit": None,
-        "current_prediction": None,
-        "waiting_for_result": False,
-        "has_bet": False,
-        "balance": 0,
-        "last_preds": {},
-        "session_id": None,
-        "nickname": "",
-        "sio": None,
-        "token": None,
-        "history": []          # Lịch sử thắng/thua chi tiết
+        "profit_loss": 0, "auto_bet": False, "x2_mode": False,
+        "win_streak": 0, "lose_streak": 0,
+        "total_win": 0, "total_lose": 0, "total_sessions": 0,
+        "base_bet": 10000, "current_bet": 10000,
+        "target_profit": None, "current_prediction": None,
+        "waiting_for_result": False, "has_bet": False,
+        "balance": 0, "last_preds": {}, "session_id": None,
+        "nickname": "", "username": "", "sio": None, "token": None,
+        "history": []
     }
 
-# Lưu / đọc history ra file (chống mất khi restart Render)
 def load_history():
     try:
         if os.path.exists(HISTORY_FILE):
@@ -67,33 +52,51 @@ def index():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.json or {}
-    res = login_and_get_token(data.get('username',''), data.get('password',''))
-    if "_error" in res:
-        return jsonify({"ok": False, "msg": res["_error"]})
-    return jsonify({
-        "ok": True,
-        "nickname": res["nickname"],
-        "money": res["money"],
-        "token": res["token"],
-        "username": data.get('username','')
-    })
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        username = (data.get('username') or '').strip()
+        password = (data.get('password') or '').strip()
+        if not username or not password:
+            return jsonify({"ok": False, "msg": "Thiếu tài khoản hoặc mật khẩu"})
 
-# ==========================================
-# SOCKET EVENTS
+        print(f"[LOGIN] Trying: {username}")
+        res = login_and_get_token(username, password)
+        print(f"[LOGIN] Result keys: {list(res.keys())}")
+
+        if "_error" in res:
+            return jsonify({"ok": False, "msg": res["_error"]})
+
+        if "token" not in res or not res["token"]:
+            return jsonify({"ok": False, "msg": "API không trả token"})
+
+        return jsonify({
+            "ok": True,
+            "nickname": res.get("nickname") or username,
+            "money": int(res.get("money", 0)),
+            "token": res["token"],
+            "username": username
+        })
+    except Exception as e:
+        print(f"[LOGIN ERROR] {e}")
+        return jsonify({"ok": False, "msg": f"Server error: {str(e)}"})
+
+@app.route('/api/health')
+def health():
+    return jsonify({"ok": True, "time": time.time()})
+
 # ==========================================
 @socketio.on('connect')
 def on_connect():
     WEB_USERS[request.sid] = init_user_state()
-    print(f"[+] Client connected: {request.sid}")
+    print(f"[+] Client: {request.sid}")
 
 @socketio.on('disconnect')
 def on_disconnect():
     u = WEB_USERS.pop(request.sid, None)
-    if u and u.get("sio"):
-        try: u["sio"].disconnect()
-        except: pass
-        # Lưu history khi ngắt
+    if u:
+        if u.get("sio"):
+            try: u["sio"].disconnect()
+            except: pass
         if u.get("nickname"):
             PERSISTED_HISTORY[u["nickname"]] = u["history"]
             save_history(PERSISTED_HISTORY)
@@ -104,23 +107,26 @@ def on_start_bot(data):
     if not u: return
     token = data.get('token')
     nickname = data.get('nickname', 'User')
+    username = data.get('username', '')
     if not token: return emit('log', {'msg': '❌ Thiếu token'})
+
     u["token"] = token
     u["nickname"] = nickname
+    u["username"] = username
     u["balance"] = int(data.get('money', 0))
 
-    # Load lại history nếu có
     if nickname in PERSISTED_HISTORY:
         u["history"] = PERSISTED_HISTORY[nickname]
-        u["total_win"] = sum(1 for h in u["history"] if h["result"] == "WIN")
-        u["total_lose"] = sum(1 for h in u["history"] if h["result"] == "LOSE")
+        u["total_win"] = sum(1 for h in u["history"] if h.get("outcome") == "WIN")
+        u["total_lose"] = sum(1 for h in u["history"] if h.get("outcome") == "LOSE")
         u["total_sessions"] = len(u["history"])
-        u["profit_loss"] = sum(h["profit"] for h in u["history"])
+        u["profit_loss"] = sum(h.get("profit", 0) for h in u["history"])
 
     emit('user_info', {
         'nickname': nickname,
+        'username': username,
         'balance': u["balance"],
-        'history': u["history"][-50:],  # 50 phiên gần nhất
+        'history': u["history"][-50:],
         'total_win': u["total_win"],
         'total_lose': u["total_lose"],
         'total_sessions': u["total_sessions"],
@@ -148,30 +154,25 @@ def _run_ws(sid, token):
         u["session_id"] = data.get('id','N/A')
         u["has_bet"] = False
 
-        # Kiểm tra target
         if u["auto_bet"] and u["target_profit"] and u["profit_loss"] >= u["target_profit"]:
             u["auto_bet"] = False
             socketio.emit('log', {'msg': f'🏆 ĐẠT TARGET! Lãi: {u["profit_loss"]:,} Win. Auto OFF.'}, to=sid)
             socketio.emit('autobet_ack', {'on': False, 'base_bet': u["base_bet"]}, to=sid)
 
-        # Dự đoán
         pred = None
         u["last_preds"] = {}
         if len(GLOBAL_HISTORY) >= 10:
             pred = make_prediction(last_preds_holder=u["last_preds"])
         u["current_prediction"] = pred
 
-        # Tính tiền cược hiện tại (X2 nếu streak >= 1)
         if u["x2_mode"] and u["win_streak"] >= 1:
-            u["current_bet"] = u["base_bet"] * (2 ** min(u["win_streak"], 3))  # tối đa x8
+            u["current_bet"] = u["base_bet"] * (2 ** min(u["win_streak"], 3))
         else:
             u["current_bet"] = u["base_bet"]
 
         socketio.emit('new_session', {
-            'session': u["session_id"],
-            'prediction': pred,
-            'bet': u["current_bet"],
-            'auto': u["auto_bet"],
+            'session': u["session_id"], 'prediction': pred,
+            'bet': u["current_bet"], 'auto': u["auto_bet"],
             'history_len': len(GLOBAL_HISTORY)
         }, to=sid)
 
@@ -179,16 +180,13 @@ def _run_ws(sid, token):
     def on_tick(data):
         u = WEB_USERS.get(sid)
         if not u: return
-        if (data.get('state') == 'BETTING'
-            and u["auto_bet"]
-            and u["current_prediction"]
-            and not u["has_bet"]):
+        if (data.get('state') == 'BETTING' and u["auto_bet"]
+                and u["current_prediction"] and not u["has_bet"]):
             cli.emit('bet', {"type": u["current_prediction"], "amount": u["current_bet"]}, namespace='/txmd5')
             u["has_bet"] = True
             u["waiting_for_result"] = True
             socketio.emit('bet_placed', {
-                'amount': u["current_bet"],
-                'type': u["current_prediction"]
+                'amount': u["current_bet"], 'type': u["current_prediction"]
             }, to=sid)
 
     @cli.on('bet-result', namespace='/txmd5')
@@ -211,7 +209,6 @@ def _run_ws(sid, token):
             update_global_weights(result, u.get("last_preds", {}))
             u["last_preds"] = {}
 
-        # Xử lý thắng thua
         bet_result = None
         profit_delta = 0
         if u["waiting_for_result"] and u["current_prediction"]:
@@ -232,7 +229,6 @@ def _run_ws(sid, token):
                 bet_result = "LOSE"
             u["waiting_for_result"] = False
 
-            # Lưu history
             entry = {
                 "session": u["session_id"],
                 "prediction": u["current_prediction"],
@@ -249,16 +245,12 @@ def _run_ws(sid, token):
             _persist_user(u)
 
         socketio.emit('result', {
-            'result': result,
-            'dices': dices,
+            'result': result, 'dices': dices,
             'profit_loss': u["profit_loss"],
-            'win_streak': u["win_streak"],
-            'lose_streak': u["lose_streak"],
-            'balance': u["balance"],
-            'bet_result': bet_result,
+            'win_streak': u["win_streak"], 'lose_streak': u["lose_streak"],
+            'balance': u["balance"], 'bet_result': bet_result,
             'profit_delta': profit_delta,
-            'total_win': u["total_win"],
-            'total_lose': u["total_lose"],
+            'total_win': u["total_win"], 'total_lose': u["total_lose"],
             'total_sessions': u["total_sessions"],
             'entry': u["history"][-1] if bet_result else None
         }, to=sid)
@@ -273,8 +265,6 @@ def _run_ws(sid, token):
     except Exception as e:
         socketio.emit('log', {'msg': f'⚠️ Lỗi kết nối: {e}'}, to=sid)
 
-# ==========================================
-# ACTIONS TỪ UI
 # ==========================================
 @socketio.on('set_autobet')
 def set_autobet(d):
@@ -300,39 +290,14 @@ def set_target(d):
         emit('target_ack', {'target': u["target_profit"]})
     except: pass
 
-@socketio.on('get_stats')
-def get_stats():
-    u = WEB_USERS.get(request.sid)
-    if not u: return
-    emit('stats', {
-        'balance': u["balance"],
-        'profit_loss': u["profit_loss"],
-        'target': u["target_profit"],
-        'auto': u["auto_bet"],
-        'x2': u["x2_mode"],
-        'streak': u["win_streak"],
-        'lose_streak': u["lose_streak"],
-        'base_bet': u["base_bet"],
-        'total_win': u["total_win"],
-        'total_lose': u["total_lose"],
-        'total_sessions': u["total_sessions"]
-    })
-
-@socketio.on('get_weights')
-def get_weights():
-    top = sorted(GLOBAL_AI_WEIGHTS.items(), key=lambda x: -x[1])[:15]
-    emit('weights', {'list': top})
-
 @socketio.on('get_history')
 def get_history():
     u = WEB_USERS.get(request.sid)
     if not u: return
     emit('history_data', {
         'history': u["history"][-100:],
-        'total_win': u["total_win"],
-        'total_lose': u["total_lose"],
-        'total_sessions': u["total_sessions"],
-        'profit_loss': u["profit_loss"]
+        'total_win': u["total_win"], 'total_lose': u["total_lose"],
+        'total_sessions': u["total_sessions"], 'profit_loss': u["profit_loss"]
     })
 
 @socketio.on('reset_history')
@@ -340,21 +305,21 @@ def reset_history():
     u = WEB_USERS.get(request.sid)
     if not u: return
     u["history"] = []
-    u["total_win"] = 0
-    u["total_lose"] = 0
-    u["total_sessions"] = 0
-    u["profit_loss"] = 0
-    u["win_streak"] = 0
-    u["lose_streak"] = 0
+    u["total_win"] = 0; u["total_lose"] = 0; u["total_sessions"] = 0
+    u["profit_loss"] = 0; u["win_streak"] = 0; u["lose_streak"] = 0
     if u["nickname"]:
         PERSISTED_HISTORY[u["nickname"]] = []
         save_history(PERSISTED_HISTORY)
     emit('history_reset_ack', {'ok': True})
     emit('history_data', {
-        'history': [],
-        'total_win': 0, 'total_lose': 0,
+        'history': [], 'total_win': 0, 'total_lose': 0,
         'total_sessions': 0, 'profit_loss': 0
     })
+
+@socketio.on('get_weights')
+def get_weights():
+    top = sorted(GLOBAL_AI_WEIGHTS.items(), key=lambda x: -x[1])[:15]
+    emit('weights', {'list': top})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
