@@ -3,36 +3,52 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<meta name="theme-color" content="#0f172a">
-<title>AI Tài Xỉu V3</title>
+<title>TOOL AUTO LC79</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
 <div class="app">
 
-  <!-- ===== ĐĂNG NHẬP ===== -->
-  <section id="login-panel" class="card login-card">
-    <div class="logo">🤖</div>
-    <h1>AI TÀI XỈU <span>V3</span></h1>
-    <p class="sub">35 Lõi Trí Tuệ · Exponential Weights</p>
-
-    <div class="input-group">
-      <label>Tài khoản game</label>
-      <input id="username" placeholder="Nhập tài khoản" autocomplete="username">
-    </div>
-    <div class="input-group">
-      <label>Mật khẩu</label>
-      <input id="password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password">
+  <!-- MÀN HÌNH ĐĂNG NHẬP -->
+  <section id="login-panel">
+    <div class="header-banner">
+      <div class="logo-79">LC79</div>
+      <div class="header-text">
+        <h1>TOOL AUTO LC79</h1>
+        <p>Hệ thống phân tích cầu & dự đoán Tài Xỉu tự động</p>
+      </div>
     </div>
 
-    <button id="btn-login" class="primary">🚀 Đăng nhập</button>
-    <p id="login-msg" class="msg"></p>
+    <div class="login-card">
+      <div class="card-title">
+        <span class="icon">➜]</span> ĐĂNG NHẬP GAME
+      </div>
+      
+      <div class="input-group">
+        <label>TÀI KHOẢN</label>
+        <input id="username" placeholder="username" autocomplete="username">
+      </div>
+      
+      <div class="input-group">
+        <label>MẬT KHẨU</label>
+        <input id="password" type="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+
+      <div class="input-group">
+        <label>NHẬP KEY BẢN QUYỀN</label>
+        <input id="license-key" placeholder="KEY-XXXXX">
+      </div>
+
+      <button id="btn-login" class="btn-primary">
+        <span class="lock-icon">🔒</span> ĐĂNG NHẬP
+      </button>
+      <p id="login-msg" class="msg"></p>
+    </div>
   </section>
 
-  <!-- ===== DASHBOARD ===== -->
+  <!-- MÀN HÌNH DASHBOARD (ẨN LÚC ĐẦU) -->
   <section id="dashboard" class="hidden">
-    <!-- Header user -->
     <header class="topbar">
       <div class="user">
         <div class="avatar">👤</div>
@@ -47,7 +63,6 @@
       </div>
     </header>
 
-    <!-- Trạng thái phiên -->
     <div class="status-bar">
       <div class="st-item">
         <div class="st-label">Phiên</div>
@@ -67,7 +82,6 @@
       </div>
     </div>
 
-    <!-- Thống kê tổng -->
     <div class="card">
       <h3>📊 Thống kê tổng</h3>
       <div class="stats-grid">
@@ -78,7 +92,6 @@
       </div>
     </div>
 
-    <!-- Cài đặt cược -->
     <div class="card">
       <h3>⚙️ Cài đặt cược</h3>
       <div class="input-group">
@@ -94,32 +107,29 @@
         <button id="btn-autobet" class="toggle">▶ Bật Auto</button>
         <button id="btn-x2" class="toggle">⚡ X2</button>
       </div>
-      <button id="btn-start" class="primary">🎯 Bắt đầu Bot</button>
-      <button id="btn-stop" class="danger">⏹ Dừng Bot</button>
+      <button id="btn-start" class="btn-primary" style="background: linear-gradient(135deg, #22c55e, #16a34a);">🎯 Bắt đầu Bot</button>
+      <button id="btn-stop" class="btn-danger">⏹ Dừng Bot</button>
     </div>
 
-    <!-- Lịch sử -->
     <div class="card">
       <div class="head-row">
         <h3>📜 Lịch sử thắng/thua</h3>
-        <button id="btn-reset" class="small danger">🗑 Reset</button>
+        <button id="btn-reset" class="btn-small danger">🗑 Reset</button>
       </div>
       <div id="history-list" class="history-list">
         <div class="empty">Chưa có lịch sử cược</div>
       </div>
     </div>
 
-    <!-- Log -->
     <div class="card">
       <h3>📡 Log hoạt động</h3>
       <div id="log" class="log"></div>
     </div>
 
-    <!-- Top AI -->
     <div class="card">
       <div class="head-row">
         <h3>🧠 Top 15 Core AI</h3>
-        <button id="btn-weights" class="small">🔄</button>
+        <button id="btn-weights" class="btn-small">🔄 Làm mới</button>
       </div>
       <div id="weights" class="weights"></div>
     </div>
